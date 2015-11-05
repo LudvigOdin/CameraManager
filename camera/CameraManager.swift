@@ -8,7 +8,7 @@
 
 import UIKit
 import AVFoundation
-import AssetsLibrary
+import Photos
 
 private let _singletonSharedInstance = CameraManager()
 
@@ -188,7 +188,6 @@ public class CameraManager: NSObject, AVCaptureFileOutputRecordingDelegate {
     private var stillImageOutput: AVCaptureStillImageOutput?
     private var movieOutput: AVCaptureMovieFileOutput?
     private var previewLayer: AVCaptureVideoPreviewLayer?
-    private var library: ALAssetsLibrary?
 
     private var cameraIsSetup = false
     private var cameraIsObservingDeviceOrientation = false
@@ -321,6 +320,7 @@ public class CameraManager: NSObject, AVCaptureFileOutputRecordingDelegate {
         self.movieOutput = nil
     }
 
+    
     /**
     Captures still image from currently running capture session.
 
@@ -341,18 +341,21 @@ public class CameraManager: NSObject, AVCaptureFileOutputRecordingDelegate {
                             imageCompletition(nil, error)
                         } else {
                             let imageData = AVCaptureStillImageOutput.jpegStillImageNSDataRepresentation(sample)
+                            let image = UIImage(data: imageData)
+                            
                             if let weakSelf = self {
                                 if weakSelf.writeFilesToPhoneLibrary {
-                                    if let validLibrary = weakSelf.library {
-                                        validLibrary.writeImageDataToSavedPhotosAlbum(imageData, metadata:nil, completionBlock: {
-                                            (picUrl, error) -> Void in
+                                    PHPhotoLibrary.sharedPhotoLibrary().performChanges({
+                                        PHAssetChangeRequest.creationRequestForAssetFromImage(image!)
+                                        },
+                                        completionHandler: { success, error in
                                             if (error != nil) {
                                                 dispatch_async(dispatch_get_main_queue(), {
-                                                    weakSelf._show(NSLocalizedString("Error", comment:""), message: error.localizedDescription)
+                                                    weakSelf._show(NSLocalizedString("Error", comment:""), message: error!.localizedDescription)
                                                 })
                                             }
-                                        })
-                                    }
+                                            
+                                    })
                                 }
                             }
                             imageCompletition(UIImage(data: imageData), nil)
@@ -441,20 +444,19 @@ public class CameraManager: NSObject, AVCaptureFileOutputRecordingDelegate {
         if (error != nil) {
             self._show(NSLocalizedString("Unable to save video to the iPhone", comment:""), message: error.localizedDescription)
         } else {
-            if let validLibrary = self.library {
-                if self.writeFilesToPhoneLibrary {
-                    validLibrary.writeVideoAtPathToSavedPhotosAlbum(outputFileURL, completionBlock: { (assetURL: NSURL?, error: NSError?) -> Void in
+            if self.writeFilesToPhoneLibrary {
+                PHPhotoLibrary.sharedPhotoLibrary().performChanges({
+                    PHAssetChangeRequest.creationRequestForAssetFromVideoAtFileURL(outputFileURL)
+                    },
+                    completionHandler: { success, error in
                         if (error != nil) {
                             self._show(NSLocalizedString("Unable to save video to the iPhone.", comment:""), message: error!.localizedDescription)
                         } else {
-                            if let validAssetURL = assetURL {
-                                self._executeVideoCompletitionWithURL(validAssetURL, error: error)
-                            }
+                            self._executeVideoCompletitionWithURL(outputFileURL, error: error)
                         }
-                    })
-                } else {
-                    self._executeVideoCompletitionWithURL(outputFileURL, error: error)
-                }
+                })
+            } else {
+                self._executeVideoCompletitionWithURL(outputFileURL, error: error)
             }
         }
     }
@@ -750,9 +752,6 @@ public class CameraManager: NSObject, AVCaptureFileOutputRecordingDelegate {
         }
         if (self.movieOutput == nil) {
             self.movieOutput = AVCaptureMovieFileOutput()
-        }
-        if self.library == nil {
-            self.library = ALAssetsLibrary()
         }
     }
 
